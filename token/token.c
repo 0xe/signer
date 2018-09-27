@@ -257,9 +257,10 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
   }
 
   // read body from the ngx buffer
-  body_len = (r->request_body->bufs->buf->last - r->request_body->bufs->buf->start);
+  body_len = (r->request_body->bufs->buf->last - r->request_body->bufs->buf->start + 1);
   body = ngx_pcalloc(r->pool, body_len * sizeof(unsigned char));
   strncpy((char *) body, (const char *) r->request_body->bufs->buf->start, body_len);
+  body[body_len-1] = '\0';
 
   // set exp, nbf, iat
   json_t *klaims; json_error_t jerr;
