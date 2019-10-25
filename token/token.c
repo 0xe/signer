@@ -265,6 +265,15 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
   // set exp, nbf, iat
   json_t *klaims; json_error_t jerr;
   klaims = json_loads((const char *)body, 0, &jerr);
+
+  // validate if the json presented is not malformed
+  if(klaims == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+      "token: invalid json presented. aborted.");
+    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
+    return;
+  }
+
   json_object_set_new(klaims, "exp", json_integer((json_int_t) exp_l));
   json_object_set_new(klaims, "nbf", json_integer((json_int_t) nbf_l));
   json_object_set_new(klaims, "iat", json_integer((json_int_t) nbf_l));
