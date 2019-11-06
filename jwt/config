@@ -1,0 +1,4 @@
+ngx_addon_name=jwt
+HTTP_MODULES="$HTTP_MODULES ngx_http_jwt_module"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/jwt.c $ngx_addon_dir/jws.c"
+CORE_LIBS="$CORE_LIBS -ljansson"
