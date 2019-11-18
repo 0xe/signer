@@ -345,16 +345,17 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
 
 static ngx_int_t ngx_http_token_handler(ngx_http_request_t *r)
 {
-  if (!(r->method == NGX_HTTP_POST)) {
-    return NGX_HTTP_NOT_ALLOWED;
-  }
-
   // fetch conf
   token_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_token_module);
 
+  // don't process the request if keyfile is not present (not our request)
   if (location_conf->keyfile.data == NULL) {
     return NGX_DECLINED;
-  } // don't process the request if keyfile is not present (not our request)
+  }
+
+  if (!(r->method == NGX_HTTP_POST)) {
+    return NGX_HTTP_NOT_ALLOWED;
+  }
 
   r->request_body_in_single_buf = 1;
   ngx_int_t rc = ngx_http_read_client_request_body(r, ngx_http_token_body_handler);
