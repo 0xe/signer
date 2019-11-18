@@ -32,50 +32,61 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include <openssl/rand.h>
 
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r);
-static void ngx_http_jwt_body_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf);
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
-static void ngx_http_jwt_deinit(ngx_cycle_t *cf);
+
+#define FIELDS_TO_CHECK 10
+#define HEADER_LEN 68
+
 
 typedef struct {
-  ngx_str_t header;
-  ngx_str_t jwks;
-  ngx_str_t exp;
-  ngx_str_t skew;
+  ngx_str_t header; /* jwt header for fast check */
+  ngx_str_t jwks;   /* location of jwks file */
+  ngx_str_t exp;    /* allowed expiry for jwt */
+  ngx_str_t skew;   /* allowed skew in the jwt */
+  ngx_array_t *fields;  /* array of fields to check jwt for */
 } jwt_loc_conf_t;
 
 static ngx_command_t ngx_http_jwt_commands[] = {
   {
-    ngx_string("header"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_string("jwt_header_enc"),
+    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, header),
     NULL
   },
   {
-    ngx_string("jwks"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_string("jwt_jwks"),
+    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, jwks),
     NULL
   },
   {
-    ngx_string("exp"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_string("jwt_exp"),
+    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, exp),
     NULL
   },
   {
-    ngx_string("skew"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_string("jwt_skew"),
+    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, skew),
+    NULL
+  },
+  {
+    ngx_string("jwt_fields"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_ANY,
+    ngx_conf_set_str_array_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(jwt_loc_conf_t, fields),
     NULL
   },
   ngx_null_command
@@ -105,29 +116,27 @@ ngx_module_t  ngx_http_jwt_module = {
     NULL,                          /* init process */
     NULL,                          /* init thread */
     NULL,                          /* exit thread */
-    ngx_http_jwt_deinit,           /* exit process */
+    NULL,                          /* exit process */
     NULL,                          /* exit master */
   NGX_MODULE_V1_PADDING
 };
 
-static void ngx_http_jwt_body_handler(ngx_http_request_t *r)
-{
-}
-
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 {
-
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
 
-  r->request_body_in_single_buf = 1;
-  ngx_int_t rc = ngx_http_read_client_request_body(r, ngx_http_jwt_body_handler);
+  // fast header check first, if not bail out
+  unsigned char *header = (unsigned char *) location_conf->header.data;
+  unsigned char *incoming_jwt = (unsigned char *) r->headers_in.authorization->value.data + 7;
 
-  if (rc == NGX_AGAIN) {
-    return NGX_DONE;
-  }
+  const char *delim = ".";
+  char *header_part = strtok(incoming_jwt, delim);
 
-  return rc;
+  if(!strncmp(header_part, header, HEADER_LEN))
+    return NGX_OK;
+
+  return NGX_HTTP_UNAUTHORIZED;
 }
 
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
@@ -145,6 +154,7 @@ static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
   conf->exp.len = 0;
   conf->skew.data = NULL;
   conf->skew.len = 0;
+  conf->fields = ngx_array_create(cf->pool, FIELDS_TO_CHECK, sizeof(ngx_str_t));
 
   return conf;
 }
@@ -176,9 +186,4 @@ static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf)
     *h = ngx_http_jwt_handler;
 
     return NGX_OK;
-}
-
-static void ngx_http_jwt_deinit(ngx_cycle_t *cy)
-{
-  return;
 }
