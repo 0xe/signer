@@ -132,33 +132,39 @@ ngx_module_t  ngx_http_jwt_module = {
 
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 {
-  unsigned char *incoming_jwt;
+  char *incoming_jwt;
+  char *header, *signature, *body;
+  const char *delim = "."; char *saveptr;
+  char *encoded_header;
 
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
 
   // decide to enforce, if no JWT present in the request
-  if (!r->headers_in.authorization)
+  if (!r->headers_in.authorization) {
     if (!ngx_strncmp(location_conf->enforce.data, "0", 1))
       return NGX_OK;
     else
       return NGX_HTTP_UNAUTHORIZED;
+  }
 
   // fast header check first, if not bail out
-  unsigned char *header = (unsigned char *) location_conf->header.data;
+  encoded_header = (char *) location_conf->header.data;
 
   if (r->headers_in.authorization->value.len > BEARER_LEN)
-    incoming_jwt = (unsigned char *) r->headers_in.authorization->value.data + BEARER_LEN;
+    incoming_jwt = (char *) r->headers_in.authorization->value.data + BEARER_LEN;
   else
     return NGX_HTTP_UNAUTHORIZED;
 
-  const char *delim = ".";
-  char *header_part = strtok(incoming_jwt, delim);
+  // parse the jwt to extract the components
+  header = strtok_r(incoming_jwt, delim, &saveptr);
+  body = strtok_r(NULL, delim, &saveptr);
+  signature = saveptr;
 
-  if(strncmp(header_part, header, HEADER_LEN))
+  if(strncmp(header, encoded_header, HEADER_LEN))
     return NGX_HTTP_UNAUTHORIZED;
 
-  // TODO: full JWT check
+
 
   return NGX_OK;
 }
