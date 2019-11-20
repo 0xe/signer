@@ -38,9 +38,10 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
 
 #define FIELDS_TO_CHECK 10
 #define HEADER_LEN 68
-
+#define BEARER_LEN 7
 
 typedef struct {
+  ngx_str_t enforce; /* enforce JWT validation */
   ngx_str_t header; /* jwt header for fast check */
   ngx_str_t jwks;   /* location of jwks file */
   ngx_str_t exp;    /* allowed expiry for jwt */
@@ -79,6 +80,14 @@ static ngx_command_t ngx_http_jwt_commands[] = {
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, skew),
+    NULL
+  },
+  {
+    ngx_string("jwt_enforce"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(jwt_loc_conf_t, enforce),
     NULL
   },
   {
@@ -123,20 +132,35 @@ ngx_module_t  ngx_http_jwt_module = {
 
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 {
+  unsigned char *incoming_jwt;
+
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
 
+  // decide to enforce, if no JWT present in the request
+  if (!r->headers_in.authorization)
+    if (!ngx_strncmp(location_conf->enforce.data, "0", 1))
+      return NGX_OK;
+    else
+      return NGX_HTTP_UNAUTHORIZED;
+
   // fast header check first, if not bail out
   unsigned char *header = (unsigned char *) location_conf->header.data;
-  unsigned char *incoming_jwt = (unsigned char *) r->headers_in.authorization->value.data + 7;
+
+  if (r->headers_in.authorization->value.len > BEARER_LEN)
+    incoming_jwt = (unsigned char *) r->headers_in.authorization->value.data + BEARER_LEN;
+  else
+    return NGX_HTTP_UNAUTHORIZED;
 
   const char *delim = ".";
   char *header_part = strtok(incoming_jwt, delim);
 
-  if(!strncmp(header_part, header, HEADER_LEN))
-    return NGX_OK;
+  if(strncmp(header_part, header, HEADER_LEN))
+    return NGX_HTTP_UNAUTHORIZED;
 
-  return NGX_HTTP_UNAUTHORIZED;
+  // TODO: full JWT check
+
+  return NGX_OK;
 }
 
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
@@ -154,6 +178,8 @@ static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
   conf->exp.len = 0;
   conf->skew.data = NULL;
   conf->skew.len = 0;
+  conf->enforce.data = NULL;
+  conf->enforce.len = 0;
   conf->fields = ngx_array_create(cf->pool, FIELDS_TO_CHECK, sizeof(ngx_str_t));
 
   return conf;
@@ -168,6 +194,7 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
   ngx_conf_merge_str_value(conf->jwks, prev->jwks, NULL);
   ngx_conf_merge_str_value(conf->exp, prev->exp, NULL);
   ngx_conf_merge_str_value(conf->skew, prev->skew, NULL);
+  ngx_conf_merge_str_value(conf->enforce, prev->enforce, NULL);
   return NGX_CONF_OK;
 }
 
