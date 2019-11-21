@@ -53,9 +53,9 @@ int asprintf(char **strp, const char *fmt, ...);
 
 // config for the RSA key in location
 typedef struct {
-  ngx_str_t keyfile;
-  ngx_str_t jwt_header;
-  ngx_str_t default_exp;
+  ngx_str_t keyfile; /* keyfile to sign the jwt token */
+  ngx_str_t jwt_header; /* jwt header */
+  ngx_str_t default_exp; /* default expiry to use (in seconds) */
 } token_loc_conf_t;
 
 static ngx_command_t ngx_http_token_commands[] = {

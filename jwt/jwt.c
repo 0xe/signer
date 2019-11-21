@@ -52,7 +52,7 @@ typedef struct {
 static ngx_command_t ngx_http_jwt_commands[] = {
   {
     ngx_string("jwt_header_enc"),
-    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, header),
@@ -60,7 +60,7 @@ static ngx_command_t ngx_http_jwt_commands[] = {
   },
   {
     ngx_string("jwt_jwks"),
-    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, jwks),
@@ -68,7 +68,7 @@ static ngx_command_t ngx_http_jwt_commands[] = {
   },
   {
     ngx_string("jwt_exp"),
-    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, exp),
@@ -76,7 +76,7 @@ static ngx_command_t ngx_http_jwt_commands[] = {
   },
   {
     ngx_string("jwt_skew"),
-    NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, skew),
