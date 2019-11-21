@@ -214,6 +214,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   const char *delim = "."; char *saveptr;
   char *encoded_header;
   int rc;
+  char *msg;
 
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
@@ -251,40 +252,30 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
       return NGX_ERROR;
   }
 
-  // verify signature
-  ngx_str_t be_header, bd_header, be_body, bd_body;
-  be_header.data = (unsigned char *) header;
-  be_header.len = strlen(header);
-
-  be_body.data = (unsigned char *) body;
-  be_body.len = strlen(body);
-
-  bd_body.len = ngx_base64_encoded_length(be_body.len);
-  bd_header.len = ngx_base64_encoded_length(be_header.len);
-
-  bd_body.data = ngx_pcalloc(r->pool, (bd_body.len+1) * sizeof(unsigned char));
-  bd_header.data = ngx_pcalloc(r->pool, (bd_header.len+1) * sizeof(unsigned char));
-
-  ngx_decode_base64url(&bd_body, &be_body);
-  ngx_decode_base64url(&bd_header, &be_header);
-
-  bd_body.data[bd_body.len+1] = '\0';
-  bd_header.data[bd_header.len+1] = '\0';
-
-  char *msg;
-  asprintf((char **) &msg, "%s.%s", bd_header.data, bd_body.data);
+  asprintf((char **) &msg, "%s.%s", header, body);
 
   size_t slen = strlen((const char *) signature);
   size_t mlen = strlen((const char *) msg);
 
-  rc = verify(msg, mlen, signature, slen, pubkey, r);
+  ngx_str_t be_sig, bd_sig;
+  be_sig.data = signature;
+  be_sig.len = slen;
+
+  bd_sig.len = ngx_base64_decoded_length(be_sig.len);
+  bd_sig.data = calloc(bd_sig.len+1, sizeof(unsigned char));
+
+  ngx_decode_base64url(&bd_sig, &be_sig);
+
+  // verify signature
+  rc = verify(msg, mlen, bd_sig.data, bd_sig.len, pubkey, r);
 
   if (rc != 0)
     return NGX_HTTP_UNAUTHORIZED;
 
   // TODO: check expiry
   // TODO: check custom claims
-  // TODO: check allocations
+
+  free(msg); free(bd_sig.data);
 
   return NGX_OK;
 }
@@ -350,7 +341,7 @@ EVP_PKEY *extract_pubkey(const char *exp, const char *modulus)
   be_modulus.data = (unsigned char *) modulus;
   be_modulus.len = strlen(modulus);
 
-  bd_modulus.len = ngx_base64_encoded_length(be_modulus.len);
+  bd_modulus.len = ngx_base64_decoded_length(be_modulus.len);
   bd_modulus.data = calloc(bd_modulus.len+1, sizeof(unsigned char));
 
   ngx_decode_base64url(&bd_modulus, &be_modulus);
@@ -359,7 +350,7 @@ EVP_PKEY *extract_pubkey(const char *exp, const char *modulus)
   be_exp.data = (unsigned char *) exp;
   be_exp.len = strlen(exp);
 
-  bd_exp.len = ngx_base64_encoded_length(be_exp.len);
+  bd_exp.len = ngx_base64_decoded_length(be_exp.len);
   bd_exp.data = calloc(bd_exp.len+1, sizeof(unsigned char));
 
   ngx_decode_base64url(&bd_exp, &be_exp);
