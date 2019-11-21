@@ -28,6 +28,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
+#include <openssl/bn.h>
 #include <openssl/sha.h>
 #include <openssl/rand.h>
 
@@ -36,6 +37,7 @@ static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf);
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_jwt_deinit(ngx_cycle_t *cf);
+static int verify(char *msg, size_t mlen, char *sig, size_t slen, EVP_PKEY *key, ngx_http_request_t *r);
 
 #define FIELDS_TO_CHECK 10
 #define HEADER_LEN 68
@@ -48,10 +50,12 @@ struct jwks {
 
 EVP_PKEY *setup_jwks(ngx_str_t);
 EVP_PKEY *fetch_jwks(ngx_str_t);
+EVP_PKEY *extract_pubkey(const char *exp, const char *modulus);
 
 #define MAXHASH 10
 static struct jwks *keytable[MAXHASH];
 
+int asprintf(char **strp, const char *fmt, ...);
 
 typedef struct {
   ngx_str_t enforce; /* enforce JWT validation */
@@ -143,12 +147,73 @@ ngx_module_t  ngx_http_jwt_module = {
   NGX_MODULE_V1_PADDING
 };
 
+static int verify(char *msg, size_t mlen, char *sig, size_t slen, EVP_PKEY *pkey, ngx_http_request_t *r)
+{
+  int result = -1;
+  EVP_MD_CTX* ctx = NULL;
+  const EVP_MD* md;
+  int rc;
+
+  if(!msg || !mlen || !sig || !slen || !pkey) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "Failed to load key: %d\n", result);
+    return result;
+  }
+
+  ctx = EVP_MD_CTX_create();
+  if(ctx == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_MD_CTX_create failed, error 0x%lx\n", ERR_get_error());
+    return 1;
+  }
+
+  md = EVP_get_digestbyname("SHA256");
+  if(md == NULL) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_get_digestbyname failed, error 0x%lx\n", ERR_get_error());
+    return 1; /* failed */
+  }
+
+  rc = EVP_DigestInit_ex(ctx, md, NULL);
+  if(rc != 1) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_DigestInit_ex failed, error 0x%lx\n", ERR_get_error());
+    return 1; /* failed */
+  }
+
+  rc = EVP_DigestVerifyInit(ctx, NULL, md, NULL, pkey);
+  if(rc != 1) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_DigestVerifyInit failed, error 0x%lx\n", ERR_get_error());
+    return 1; /* failed */
+  }
+
+  rc = EVP_DigestVerifyUpdate(ctx, msg, mlen);
+  if(rc != 1) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_DigestVerifyUpdate failed, error 0x%lx\n", ERR_get_error());
+    return 1; /* failed */
+  }
+
+  ERR_clear_error();
+
+  rc = EVP_DigestVerifyFinal(ctx, sig, slen);
+  if(rc != 1) {
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_DigestVerifyFinal failed (1), error 0x%lx\n", ERR_get_error());
+    return 1; /* failed */
+  }
+
+  result = 0;
+
+  if(ctx) {
+    EVP_MD_CTX_destroy(ctx);
+    ctx = NULL;
+  }
+
+  return result;
+}
+
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 {
   char *incoming_jwt;
   char *header, *signature, *body;
   const char *delim = "."; char *saveptr;
-  char *encoded_header; char *jwks;
+  char *encoded_header;
+  int rc;
 
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
@@ -187,6 +252,40 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   }
 
   // verify signature
+  ngx_str_t be_header, bd_header, be_body, bd_body;
+  be_header.data = (unsigned char *) header;
+  be_header.len = strlen(header);
+
+  be_body.data = (unsigned char *) body;
+  be_body.len = strlen(body);
+
+  bd_body.len = ngx_base64_encoded_length(be_body.len);
+  bd_header.len = ngx_base64_encoded_length(be_header.len);
+
+  bd_body.data = ngx_pcalloc(r->pool, (bd_body.len+1) * sizeof(unsigned char));
+  bd_header.data = ngx_pcalloc(r->pool, (bd_header.len+1) * sizeof(unsigned char));
+
+  ngx_decode_base64url(&bd_body, &be_body);
+  ngx_decode_base64url(&bd_header, &be_header);
+
+  bd_body.data[bd_body.len+1] = '\0';
+  bd_header.data[bd_header.len+1] = '\0';
+
+  char *msg;
+  asprintf((char **) &msg, "%s.%s", bd_header.data, bd_body.data);
+
+  size_t slen = strlen((const char *) signature);
+  size_t mlen = strlen((const char *) msg);
+
+  rc = verify(msg, mlen, signature, slen, pubkey, r);
+
+  if (rc != 0)
+    return NGX_HTTP_UNAUTHORIZED;
+
+  // TODO: check expiry
+  // TODO: check custom claims
+  // TODO: check allocations
+
   return NGX_OK;
 }
 
@@ -227,28 +326,65 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
 
 static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf)
 {
-    ngx_http_handler_pt        *h;
-    ngx_http_core_main_conf_t  *cmcf;
+  ngx_http_handler_pt        *h;
+  ngx_http_core_main_conf_t  *cmcf;
 
-    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+  cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
+  h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+  if (h == NULL) {
+    return NGX_ERROR;
+  }
 
-    *h = ngx_http_jwt_handler;
+  *h = ngx_http_jwt_handler;
 
-    return NGX_OK;
+  return NGX_OK;
+}
+
+EVP_PKEY *extract_pubkey(const char *exp, const char *modulus)
+{
+  ngx_str_t bd_modulus; ngx_str_t bd_exp;
+  ngx_str_t be_modulus; ngx_str_t be_exp;
+  BIGNUM *n, *e;
+
+  be_modulus.data = (unsigned char *) modulus;
+  be_modulus.len = strlen(modulus);
+
+  bd_modulus.len = ngx_base64_encoded_length(be_modulus.len);
+  bd_modulus.data = calloc(bd_modulus.len+1, sizeof(unsigned char));
+
+  ngx_decode_base64url(&bd_modulus, &be_modulus);
+  bd_modulus.data[bd_modulus.len+1] = '\0';
+
+  be_exp.data = (unsigned char *) exp;
+  be_exp.len = strlen(exp);
+
+  bd_exp.len = ngx_base64_encoded_length(be_exp.len);
+  bd_exp.data = calloc(bd_exp.len+1, sizeof(unsigned char));
+
+  ngx_decode_base64url(&bd_exp, &be_exp);
+  bd_exp.data[bd_exp.len+1] = '\0';
+
+  n = BN_bin2bn(bd_modulus.data, bd_modulus.len, NULL);
+  e = BN_bin2bn(bd_exp.data, bd_exp.len, NULL);
+
+  free(bd_modulus.data); free(bd_exp.data);
+
+  EVP_PKEY *pkey = EVP_PKEY_new();
+  RSA *rsa = RSA_new();
+  RSA_set0_key(rsa, n, e, NULL); // only pub key
+
+  EVP_PKEY_assign_RSA(pkey, rsa);
+  return pkey;
 }
 
 EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
 {
-  RSA *rsakey;
   EVP_PKEY *pkey;
 
-  const char *extracted_pubkey_modulus;
-  char *pubkey;
+  const char *modulus;
+  const char *exponent;
+
   FILE *fp;
 
   fp = fopen((const char * __restrict__) jwks_file.data, "r");
@@ -260,27 +396,24 @@ EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
   jwks = json_loadfd(fileno(fp), JSON_DECODE_ANY, &jerr);
 
   // attempt to read a KeySet, if that fails, see if you can read a Key
-  json_t *keys, *key_1, *n;
+  json_t *keys, *key_1, *n, *e;
   keys = json_object_get(jwks, "keys");
 
   if (keys == NULL) {
     n = json_object_get(jwks, "n");
+    e = json_object_get(jwks, "e");
   } else { // XXX: just the first key for now
     key_1 = json_array_get(keys, 0);
     n = json_object_get(key_1, "n");
+    e = json_object_get(key_1, "e");
   }
 
-  extracted_pubkey_modulus = json_string_value(n);
+  exponent = json_string_value(e);
+  modulus = json_string_value(n);
+
+  // convert exponent and modulus to RSA key
+  pkey = extract_pubkey(exponent, modulus);
   fclose(fp);
-
-  // TODO: convert modulus to pubkey
-
-  /* { */
-  /*   rsakey = EVP_PKEY_get1_RSA(pkey); */
-
-  /*   if(!RSA_check_key(rsakey)) */
-  /*     return NULL; */
-  /* } */
 
   return pkey;
 }
