@@ -35,10 +35,23 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf);
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
+static void ngx_http_jwt_deinit(ngx_cycle_t *cf);
 
 #define FIELDS_TO_CHECK 10
 #define HEADER_LEN 68
 #define BEARER_LEN 7
+
+struct jwks {
+  ngx_str_t keyname;
+  EVP_PKEY *loaded_key;
+};
+
+EVP_PKEY *setup_jwks(ngx_str_t);
+EVP_PKEY *fetch_jwks(ngx_str_t);
+
+#define MAXHASH 10
+static struct jwks *keytable[MAXHASH];
+
 
 typedef struct {
   ngx_str_t enforce; /* enforce JWT validation */
@@ -125,7 +138,7 @@ ngx_module_t  ngx_http_jwt_module = {
     NULL,                          /* init process */
     NULL,                          /* init thread */
     NULL,                          /* exit thread */
-    NULL,                          /* exit process */
+    ngx_http_jwt_deinit,           /* exit process */
     NULL,                          /* exit master */
   NGX_MODULE_V1_PADDING
 };
@@ -135,7 +148,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   char *incoming_jwt;
   char *header, *signature, *body;
   const char *delim = "."; char *saveptr;
-  char *encoded_header;
+  char *encoded_header; char *jwks;
 
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
@@ -164,8 +177,16 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   if(strncmp(header, encoded_header, HEADER_LEN))
     return NGX_HTTP_UNAUTHORIZED;
 
+  EVP_PKEY *pubkey = fetch_jwks(location_conf->jwks);
 
+  if (pubkey == NULL) {
+      // TODO: better error handling
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                  "jwt: invalid jwks. aborted.");
+      return NGX_ERROR;
+  }
 
+  // verify signature
   return NGX_OK;
 }
 
@@ -219,4 +240,68 @@ static ngx_int_t ngx_http_jwt_init(ngx_conf_t *cf)
     *h = ngx_http_jwt_handler;
 
     return NGX_OK;
+}
+
+EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
+{
+  RSA *rsakey;
+  EVP_PKEY *pkey;
+
+  const char *extracted_pubkey_modulus;
+  char *pubkey;
+  FILE *fp;
+
+  fp = fopen((const char * __restrict__) jwks_file.data, "r");
+
+  if (!fp)
+    return NULL;
+
+  json_t *jwks; json_error_t jerr;
+  jwks = json_loadfd(fileno(fp), JSON_DECODE_ANY, &jerr);
+
+  // attempt to read a KeySet, if that fails, see if you can read a Key
+  json_t *keys, *key_1, *n;
+  keys = json_object_get(jwks, "keys");
+
+  if (keys == NULL) {
+    n = json_object_get(jwks, "n");
+  } else { // XXX: just the first key for now
+    key_1 = json_array_get(keys, 0);
+    n = json_object_get(key_1, "n");
+  }
+
+  extracted_pubkey_modulus = json_string_value(n);
+  fclose(fp);
+
+  // TODO: convert modulus to pubkey
+
+  /* { */
+  /*   rsakey = EVP_PKEY_get1_RSA(pkey); */
+
+  /*   if(!RSA_check_key(rsakey)) */
+  /*     return NULL; */
+  /* } */
+
+  return pkey;
+}
+
+EVP_PKEY *fetch_jwks(ngx_str_t jwks)
+{
+  unsigned long hv = ((unsigned long) ngx_hash_key_lc(jwks.data, jwks.len) % MAXHASH);
+
+  if (keytable[hv] == NULL) {
+    keytable[hv] = malloc(sizeof(struct jwks));
+    keytable[hv]->keyname = jwks;
+    keytable[hv]->loaded_key = setup_jwks(jwks);
+  }
+
+  return keytable[hv]->loaded_key;
+}
+
+static void ngx_http_jwt_deinit(ngx_cycle_t *cy)
+{
+  { int i;
+    for(i = 0; i<MAXHASH; i++) free(keytable[i]); }
+
+  return;
 }
