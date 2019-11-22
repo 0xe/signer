@@ -5,7 +5,8 @@ A nginx module to sign JSON Web Tokens (JWTs):  (https://tools.ietf.org/html/rfc
 
 ## Hacking ##
 
-- clone nginx and openssl into signer/nginx and signer/openssl
+- clone nginx (from https://github.com/nginx/nginx) and openssl (from https://github.com/openssl/openssl) into signer/nginx and signer/openssl
+- sed '/-Werror/d' nginx/auto/cc/gcc > nginx/auto/cc/gcc
 - install jansson-devel.x86_64 zlib-devel.x86_64 pcre-devel.x86_64 (for rhel/centos)
 - install libjansson-dev libpcre3-dev zlib1g-dev (for debian)
 - make
