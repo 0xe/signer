@@ -316,7 +316,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 
   // TODO: check custom claims
 
-  free(msg); free(bd_sig.data); free(bd_body.data);
+  free(msg); free(bd_sig.data); free(bd_body.data); json_decref(jwt_body);
 
   return NGX_OK;
 }
@@ -451,6 +451,7 @@ EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
   // convert exponent and modulus to RSA key
   pkey = extract_pubkey(exponent, modulus);
   fclose(fp);
+  json_decref(jwks);
 
   return pkey;
 }
