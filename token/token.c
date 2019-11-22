@@ -54,6 +54,7 @@ int asprintf(char **strp, const char *fmt, ...);
 // config for the RSA key in location
 typedef struct {
   ngx_str_t keyfile; /* keyfile to sign the jwt token */
+  ngx_str_t issuer; /* issuer to sign the jwt token with */
   ngx_str_t jwt_header; /* jwt header */
   ngx_str_t default_exp; /* default expiry to use (in seconds) */
 } token_loc_conf_t;
@@ -81,6 +82,14 @@ static ngx_command_t ngx_http_token_commands[] = {
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(token_loc_conf_t, default_exp),
+    NULL
+  },
+  {
+    ngx_string("issuer"),
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(token_loc_conf_t, issuer),
     NULL
   },
   ngx_null_command
@@ -274,6 +283,9 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
     return;
   }
 
+  // set issuer
+  json_object_set_new(klaims, "iss", json_string((const char *) location_conf->issuer.data));
+
   json_object_set_new(klaims, "exp", json_integer((json_int_t) exp_l));
   json_object_set_new(klaims, "nbf", json_integer((json_int_t) nbf_l));
   json_object_set_new(klaims, "iat", json_integer((json_int_t) nbf_l));
@@ -414,6 +426,9 @@ static void *ngx_http_token_create_loc_conf(ngx_conf_t *cf) {
   conf->keyfile.data = NULL;
   conf->keyfile.len = 0;
 
+  conf->issuer.data = NULL;
+  conf->issuer.len = 0;
+
   return conf;
 }
 
@@ -423,6 +438,7 @@ static char *ngx_http_token_merge_loc_conf(ngx_conf_t *cf, void *parent, void *c
   token_loc_conf_t *conf = child;
 
   ngx_conf_merge_str_value(conf->keyfile, prev->keyfile, NULL);
+  ngx_conf_merge_str_value(conf->issuer, prev->issuer, NULL);
   return NGX_CONF_OK;
 }
 

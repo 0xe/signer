@@ -48,27 +48,29 @@ This module is used verify JWT tokens.
 
 `jwt_header_enc`: base64 encoded JWT header for a quick check.
 
-`jwt_jwks`: path to jwks file
+`jwt_jwks`: path to jwks file.
 
-`jwt_skew`: skew for `exp` claim
+`jwt_skew`: skew for `exp` claim.
 
-`jwt_exp`: expiry to check for the jwt (in seconds)
+`jwt_exp`: expiry to check for the jwt (in seconds).
 
 `jwt_fields`: list of field names and values to check for in the JWT.
 
-`jwt_enforce`: whether to enforce JWT validation
+`jwt_enforce`: whether to enforce JWT validation.
 
-`jwt_issuer`: issuer to check for in the JWT
+`jwt_issuer`: issuer to check for in the JWT.
 
 ### token module ###
 
 This module is used to sign JWT tokens.
 
-`keyfile`: path to pvt key file used to sign the JWT token
+`keyfile`: path to pvt key file used to sign the JWT token.
 
-`jwt_header`: header for the JWT
+`jwt_header`: header for the JWT.
 
 `default_exp`: default expiry value (in seconds).
+
+`issuer`: issuer to sign the JWT with.
 
 `exp` and `nbf` claims can be overridden by passing a `exp`,`nbf` param in the request.
 
