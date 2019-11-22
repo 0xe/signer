@@ -63,6 +63,7 @@ typedef struct {
   ngx_str_t jwks;   /* location of jwks file */
   ngx_str_t exp;    /* allowed expiry for jwt */
   ngx_str_t skew;   /* allowed skew in the jwt */
+  ngx_str_t issuer; /* iss claim for the jwt */
   ngx_array_t *fields;  /* array of fields to check jwt for */
 } jwt_loc_conf_t;
 
@@ -113,6 +114,14 @@ static ngx_command_t ngx_http_jwt_commands[] = {
     ngx_conf_set_str_array_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, fields),
+    NULL
+  },
+  {
+    ngx_string("jwt_issuer"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_str_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(jwt_loc_conf_t, issuer),
     NULL
   },
   ngx_null_command
@@ -272,7 +281,10 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   if (rc != 0)
     return NGX_HTTP_UNAUTHORIZED;
 
-  // TODO: check expiry
+  // check issuer
+
+  // check expiry
+
   // TODO: check custom claims
 
   free(msg); free(bd_sig.data);
@@ -297,6 +309,8 @@ static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
   conf->skew.len = 0;
   conf->enforce.data = NULL;
   conf->enforce.len = 0;
+  conf->issuer.data = NULL;
+  conf->issuer.len = 0;
   conf->fields = ngx_array_create(cf->pool, FIELDS_TO_CHECK, sizeof(ngx_str_t));
 
   return conf;
@@ -312,6 +326,9 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
   ngx_conf_merge_str_value(conf->exp, prev->exp, NULL);
   ngx_conf_merge_str_value(conf->skew, prev->skew, NULL);
   ngx_conf_merge_str_value(conf->enforce, prev->enforce, NULL);
+  ngx_conf_merge_str_value(conf->issuer, prev->issuer, NULL);
+
+  // XXX: merge 'fields'?
   return NGX_CONF_OK;
 }
 
