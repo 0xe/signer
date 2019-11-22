@@ -422,15 +422,8 @@ EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
   const char *modulus;
   const char *exponent;
 
-  FILE *fp;
-
-  fp = fopen((const char * __restrict__) jwks_file.data, "r");
-
-  if (!fp)
-    return NULL;
-
   json_t *jwks; json_error_t jerr;
-  jwks = json_loadfd(fileno(fp), JSON_DECODE_ANY, &jerr);
+  jwks = json_load_file(jwks_file.data, JSON_DECODE_ANY, &jerr);
 
   // attempt to read a KeySet, if that fails, see if you can read a Key
   json_t *keys, *key_1, *n, *e;
@@ -450,7 +443,6 @@ EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
 
   // convert exponent and modulus to RSA key
   pkey = extract_pubkey(exponent, modulus);
-  fclose(fp);
   json_decref(jwks);
 
   return pkey;
