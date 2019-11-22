@@ -11,16 +11,66 @@ A nginx module to sign JSON Web Tokens (JWTs):  (https://tools.ietf.org/html/rfc
 - make
 - pushd target; ./sbin/nginx -c conf/nginx.conf; popd
 
-## Config ##
+## Example Config ##
 
 ```
+     server {
+            ...
+
+            jwt_header_enc  'eyJ0eXAiOiAiSldUIiwgImFsZyI6ICJSUzI1NiIsICJraWQiOiAiMTU3MjUxMjQ1NyJ9';
+	        jwt_jwks /code/jwks;
+            jwt_skew 10;
+	        jwt_exp 3600;
+            jwt_fields role=Admin;
+            jwt_enforce 0;
+            jwt_issuer 'foobar.com';
+
             location /sign {
+              keyfile "/code/pvt.pem";
+              jwt_header '{"typ": "JWT", "alg": "RS256", "kid": "1572512457"}';
               default_exp 3600;
-              jwt_header {"typ": "JWT", "alg": "RS256", "kid": "14556143233"};
-              keyfile "/rsa_2048";
               add_header Cache-control no-cache;
             }
+
+            location /foo {
+              jwt_enforce 1;
+              jwt_exp 500;
+              proxy_pass http://127.0.0.1:8000/;
+            }
+     }
 ```
+
+## Summary ##
+
+### jwt module ###
+
+This module is used verify JWT tokens.
+
+`jwt_header_enc`: base64 encoded JWT header for a quick check.
+
+`jwt_jwks`: path to jwks file
+
+`jwt_skew`: skew for `exp` claim
+
+`jwt_exp`: expiry to check for the jwt (in seconds)
+
+`jwt_fields`: list of field names and values to check for in the JWT.
+
+`jwt_enforce`: whether to enforce JWT validation
+
+`jwt_issuer`: issuer to check for in the JWT
+
+### token module ###
+
+This module is used to sign JWT tokens.
+
+`keyfile`: path to pvt key file used to sign the JWT token
+
+`jwt_header`: header for the JWT
+
+`default_exp`: default expiry value (in seconds).
+
+`exp` and `nbf` claims can be overridden by passing a `exp`,`nbf` param in the request.
 
 ## Test ##
 
