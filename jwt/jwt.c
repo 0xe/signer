@@ -224,6 +224,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   char *encoded_header;
   int rc;
   char *msg;
+  json_t *jwt_body; json_error_t jerr;
 
   // fetch conf
   jwt_loc_conf_t *location_conf = ngx_http_get_module_loc_conf(r, ngx_http_jwt_module);
@@ -267,6 +268,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   size_t mlen = strlen((const char *) msg);
 
   ngx_str_t be_sig, bd_sig;
+  ngx_str_t be_body, bd_body;
   be_sig.data = signature;
   be_sig.len = slen;
 
@@ -281,13 +283,40 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   if (rc != 0)
     return NGX_HTTP_UNAUTHORIZED;
 
+  // parse body json
+  be_body.data = body;
+  be_body.len = strlen(body);
+
+  bd_body.len = ngx_base64_decoded_length(be_body.len);
+  bd_body.data = calloc(bd_body.len+1, sizeof(unsigned char));
+
+  ngx_decode_base64url(&bd_body, &be_body);
+
   // check issuer
+  jwt_body = json_loads((const char*)bd_body.data, 0, &jerr);
+
+  if(jwt_body == NULL)
+    return NGX_HTTP_UNAUTHORIZED;
+
+  json_t *iss = json_object_get(jwt_body, "iss");
+  const char *issuer;
+  issuer = json_string_value(iss);
+
+  if(strncmp(issuer, location_conf->issuer.data, location_conf->issuer.len))
+    return NGX_HTTP_UNAUTHORIZED;
 
   // check expiry
+  json_t *exp = json_object_get(jwt_body, "exp");
+  unsigned long long expiry = (unsigned long long) json_integer_value(exp);
+  unsigned long long current_time = (unsigned long long) time(NULL);
+  int skew = strtoll((const char *) location_conf->skew.data, NULL, 10);
+
+  if(current_time > (expiry + skew))
+    return NGX_HTTP_UNAUTHORIZED;
 
   // TODO: check custom claims
 
-  free(msg); free(bd_sig.data);
+  free(msg); free(bd_sig.data); free(bd_body.data);
 
   return NGX_OK;
 }
