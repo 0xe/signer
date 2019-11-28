@@ -39,7 +39,6 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
 static void ngx_http_jwt_deinit(ngx_cycle_t *cf);
 static int verify(char *msg, size_t mlen, char *sig, size_t slen, EVP_PKEY *key, ngx_http_request_t *r);
 
-#define FIELDS_TO_CHECK 10
 #define HEADER_LEN 68
 #define BEARER_LEN 7
 
@@ -109,9 +108,9 @@ static ngx_command_t ngx_http_jwt_commands[] = {
     NULL
   },
   {
-    ngx_string("jwt_fields"),
-    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_ANY,
-    ngx_conf_set_str_array_slot,
+    ngx_string("jwt_check_field"),
+    NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+    ngx_conf_set_keyval_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(jwt_loc_conf_t, fields),
     NULL
@@ -314,8 +313,30 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   if(current_time > (expiry + skew))
     return NGX_HTTP_UNAUTHORIZED;
 
-  // TODO: check custom claims
+  // check custom claims
+  ngx_array_t *custom = location_conf->fields;
+  int i; ngx_keyval_t *kv; json_t *claim; const char *claim_val;
 
+  for(i = 0; i < custom->nelts; i++)
+  {
+    kv = (ngx_keyval_t *) &custom->elts[i];
+
+    if ((kv->key != NULL) && (kv->val != NULL)) {
+
+      // XXX: only first level for now
+      claim = json_object_get(jwt_body, kv->key.data);
+
+      if (claim == NULL)
+        return NGX_HTTP_UNAUTHORIZED;
+
+      claim_val = json_string_value(claim);
+
+      if (strncmp(claim_val, kv->value.data, kv->value.len))
+        return NGX_HTTP_UNAUTHORIZED;
+    }
+  }
+
+  // XXX: should deallocate when erroring out early
   free(msg); free(bd_sig.data); free(bd_body.data); json_decref(jwt_body);
 
   return NGX_OK;
@@ -340,7 +361,6 @@ static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
   conf->enforce.len = 0;
   conf->issuer.data = NULL;
   conf->issuer.len = 0;
-  conf->fields = ngx_array_create(cf->pool, FIELDS_TO_CHECK, sizeof(ngx_str_t));
 
   return conf;
 }
@@ -357,7 +377,10 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
   ngx_conf_merge_str_value(conf->enforce, prev->enforce, NULL);
   ngx_conf_merge_str_value(conf->issuer, prev->issuer, NULL);
 
-  // XXX: merge 'fields'?
+  if (conf->fields == NULL) {
+    conf->fields = prev->fields;
+  }
+
   return NGX_CONF_OK;
 }
 
