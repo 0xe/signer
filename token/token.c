@@ -297,7 +297,7 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
   bd_header = location_conf->jwt_header;
   bd_buf.len = json_body_len; bd_buf.data = json_body;
 
-  be_header.len = ngx_base64_encoded_length(bd_header.len);
+  be_header.len = ngx_base64_encoded_length(bd_header.len) + 1;
   be_header.data = ngx_pcalloc(r->pool, be_header.len * sizeof(unsigned char));
 
   be_buf.len = ngx_base64_encoded_length(bd_buf.len);
@@ -305,6 +305,8 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
 
   ngx_encode_base64url(&be_header, &bd_header);
   ngx_encode_base64url(&be_buf, &bd_buf);
+
+  be_header.data[be_header.len] = '\0';
 
   asprintf((char **) &jwt, "%s.%s", be_header.data, be_buf.data);
   jwt_len = strlen((const char *) jwt);
