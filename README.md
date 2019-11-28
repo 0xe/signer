@@ -22,7 +22,6 @@ A nginx module to sign JSON Web Tokens (JWTs):  (https://tools.ietf.org/html/rfc
 	        jwt_jwks /code/jwks;
             jwt_skew 10;
 	        jwt_exp 3600;
-            jwt_fields role=Admin;
             jwt_enforce 0;
             jwt_issuer 'foobar.com';
 
@@ -35,6 +34,7 @@ A nginx module to sign JSON Web Tokens (JWTs):  (https://tools.ietf.org/html/rfc
 
             location /foo {
               jwt_enforce 1;
+              jwt_check_field role Admin;
               jwt_exp 500;
               proxy_pass http://127.0.0.1:8000/;
             }
@@ -55,7 +55,7 @@ This module is used verify JWT tokens.
 
 `jwt_exp`: expiry to check for the jwt (in seconds).
 
-`jwt_fields`: list of field names and values to check for in the JWT.
+`jwt_check_field`: claim name and values to check for in the JWT.
 
 `jwt_enforce`: whether to enforce JWT validation.
 
