@@ -221,7 +221,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   char *header, *signature, *body;
   const char *delim = "."; char *saveptr;
   char *encoded_header;
-  int rc;
+  int rc = -1;
   char *msg;
   json_t *jwt_body; json_error_t jerr;
 
@@ -272,7 +272,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   be_sig.len = slen;
 
   bd_sig.len = ngx_base64_decoded_length(be_sig.len);
-  bd_sig.data = calloc(bd_sig.len+1, sizeof(unsigned char));
+  bd_sig.data = ngx_pcalloc(r->pool, bd_sig.len+1 * sizeof(unsigned char));
 
   ngx_decode_base64url(&bd_sig, &be_sig);
 
@@ -280,14 +280,14 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   rc = verify(msg, mlen, bd_sig.data, bd_sig.len, pubkey, r);
 
   if (rc != 0)
-    return NGX_HTTP_UNAUTHORIZED;
+  { rc = -1; goto fast_exit; }
 
   // parse body json
   be_body.data = body;
   be_body.len = strlen(body);
 
   bd_body.len = ngx_base64_decoded_length(be_body.len);
-  bd_body.data = calloc(bd_body.len+1, sizeof(unsigned char));
+  bd_body.data = ngx_pcalloc(r->pool, bd_body.len+1 * sizeof(unsigned char));
 
   ngx_decode_base64url(&bd_body, &be_body);
 
@@ -295,14 +295,14 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   jwt_body = json_loads((const char*)bd_body.data, 0, &jerr);
 
   if(jwt_body == NULL)
-    return NGX_HTTP_UNAUTHORIZED;
+  { rc = -1; goto fast_exit; }
 
   json_t *iss = json_object_get(jwt_body, "iss");
   const char *issuer;
   issuer = json_string_value(iss);
 
   if(strncmp(issuer, location_conf->issuer.data, location_conf->issuer.len))
-    return NGX_HTTP_UNAUTHORIZED;
+  { rc = -1; goto fast_exit; }
 
   // check expiry
   json_t *exp = json_object_get(jwt_body, "exp");
@@ -311,7 +311,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   int skew = strtoll((const char *) location_conf->skew.data, NULL, 10);
 
   if(current_time > (expiry + skew))
-    return NGX_HTTP_UNAUTHORIZED;
+  { rc = -1; goto fast_exit; }
 
   // check custom claims
   ngx_array_t *custom = location_conf->fields;
@@ -325,18 +325,21 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
     claim = json_object_get(jwt_body, kv->key.data);
 
     if (claim == NULL)
-      return NGX_HTTP_UNAUTHORIZED;
+    { rc = -1; goto fast_exit; }
 
     claim_val = json_string_value(claim);
 
     if (strncmp(claim_val, kv->value.data, kv->value.len))
-      return NGX_HTTP_UNAUTHORIZED;
+    { rc = -1; goto fast_exit; }
   }
+  rc = 0;
 
-  // XXX: should deallocate when erroring out early
-  free(msg); free(bd_sig.data); free(bd_body.data); json_decref(jwt_body);
+fast_exit:
+  free(msg); json_decref(jwt_body);
 
-  return NGX_OK;
+  if (!rc)
+    return NGX_OK;
+  return NGX_HTTP_UNAUTHORIZED;
 }
 
 static void *ngx_http_jwt_create_loc_conf(ngx_conf_t *cf) {
