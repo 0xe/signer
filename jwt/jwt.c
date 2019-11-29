@@ -321,19 +321,16 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   {
     kv = (ngx_keyval_t *) &custom->elts[i];
 
-    if ((kv->key != NULL) && (kv->val != NULL)) {
+    // XXX: only first level for now
+    claim = json_object_get(jwt_body, kv->key.data);
 
-      // XXX: only first level for now
-      claim = json_object_get(jwt_body, kv->key.data);
+    if (claim == NULL)
+      return NGX_HTTP_UNAUTHORIZED;
 
-      if (claim == NULL)
-        return NGX_HTTP_UNAUTHORIZED;
+    claim_val = json_string_value(claim);
 
-      claim_val = json_string_value(claim);
-
-      if (strncmp(claim_val, kv->value.data, kv->value.len))
-        return NGX_HTTP_UNAUTHORIZED;
-    }
+    if (strncmp(claim_val, kv->value.data, kv->value.len))
+      return NGX_HTTP_UNAUTHORIZED;
   }
 
   // XXX: should deallocate when erroring out early
@@ -379,6 +376,11 @@ static char *ngx_http_jwt_merge_loc_conf(ngx_conf_t *cf, void *parent, void *chi
 
   if (conf->fields == NULL) {
     conf->fields = prev->fields;
+  } else if (conf->fields->nelts > 1) {
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                       "duplicate jwt_check_field");
+
+    return NGX_CONF_ERROR;
   }
 
   return NGX_CONF_OK;
