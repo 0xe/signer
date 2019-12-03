@@ -300,13 +300,14 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
   be_header.len = ngx_base64_encoded_length(bd_header.len) + 1;
   be_header.data = ngx_pcalloc(r->pool, be_header.len * sizeof(unsigned char));
 
-  be_buf.len = ngx_base64_encoded_length(bd_buf.len);
+  be_buf.len = ngx_base64_encoded_length(bd_buf.len) + 1;
   be_buf.data = ngx_pcalloc(r->pool, be_buf.len * sizeof(unsigned char));
 
   ngx_encode_base64url(&be_header, &bd_header);
   ngx_encode_base64url(&be_buf, &bd_buf);
 
   be_header.data[be_header.len] = '\0';
+  be_buf.data[be_buf.len] = '\0';
 
   asprintf((char **) &jwt, "%s.%s", be_header.data, be_buf.data);
   jwt_len = strlen((const char *) jwt);
