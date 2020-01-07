@@ -355,6 +355,8 @@ static void ngx_http_token_body_handler(ngx_http_request_t *r)
 
   ngx_http_send_header(r);
   ngx_http_output_filter(r, &out);
+
+  ngx_http_finalize_request(r, NGX_HTTP_OK);
   return;
 }
 
