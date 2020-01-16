@@ -317,6 +317,12 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   ngx_array_t *custom = location_conf->fields;
   int i; ngx_keyval_t *kv; json_t *claim; const char *claim_val;
 
+  if (!custom)
+  {
+    rc = 0;
+    goto fast_exit;
+  }
+
   for(i = 0; i < custom->nelts; i++)
   {
     kv = (ngx_keyval_t *) &custom->elts[i];
