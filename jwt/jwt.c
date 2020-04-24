@@ -199,7 +199,7 @@ static int verify(char *msg, size_t mlen, char *sig, size_t slen, EVP_PKEY *pkey
 
   ERR_clear_error();
 
-  rc = EVP_DigestVerifyFinal(ctx, sig, slen);
+  rc = EVP_DigestVerifyFinal(ctx, (const unsigned char*) sig, slen);
   if(rc != 1) {
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "EVP_DigestVerifyFinal failed (1), error 0x%lx\n", ERR_get_error());
     return 1; /* failed */
@@ -217,7 +217,7 @@ static int verify(char *msg, size_t mlen, char *sig, size_t slen, EVP_PKEY *pkey
 
 static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 {
-  char *incoming_jwt;
+  char *incoming_jwt, *parsed_jwt;
   char *header, *signature, *body;
   const char *delim = "."; char *saveptr;
   char *encoded_header;
@@ -244,8 +244,10 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   else
     return NGX_HTTP_UNAUTHORIZED;
 
+  asprintf((char **) &parsed_jwt, "%s", incoming_jwt);
+
   // parse the jwt to extract the components
-  header = strtok_r(incoming_jwt, delim, &saveptr);
+  header = strtok_r(parsed_jwt, delim, &saveptr);
   body = strtok_r(NULL, delim, &saveptr);
   signature = saveptr;
 
@@ -268,7 +270,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 
   ngx_str_t be_sig, bd_sig;
   ngx_str_t be_body, bd_body;
-  be_sig.data = signature;
+  be_sig.data = (unsigned char *) signature;
   be_sig.len = slen;
 
   bd_sig.len = ngx_base64_decoded_length(be_sig.len);
@@ -277,13 +279,13 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   ngx_decode_base64url(&bd_sig, &be_sig);
 
   // verify signature
-  rc = verify(msg, mlen, bd_sig.data, bd_sig.len, pubkey, r);
+  rc = verify(msg, mlen, (char *) bd_sig.data, bd_sig.len, pubkey, r);
 
   if (rc != 0)
   { rc = -1; goto fast_exit; }
 
   // parse body json
-  be_body.data = body;
+  be_body.data = (unsigned char *) body;
   be_body.len = strlen(body);
 
   bd_body.len = ngx_base64_decoded_length(be_body.len);
@@ -301,7 +303,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   const char *issuer;
   issuer = json_string_value(iss);
 
-  if(strncmp(issuer, location_conf->issuer.data, location_conf->issuer.len))
+  if(strncmp(issuer, (const char *) location_conf->issuer.data, location_conf->issuer.len))
   { rc = -1; goto fast_exit; }
 
   // check expiry
@@ -315,7 +317,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 
   // check custom claims
   ngx_array_t *custom = location_conf->fields;
-  int i; ngx_keyval_t *kv; json_t *claim; const char *claim_val;
+  ngx_uint_t i; ngx_keyval_t *kv; json_t *claim; const char *claim_val;
 
   if (!custom)
   {
@@ -325,23 +327,23 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
 
   for(i = 0; i < custom->nelts; i++)
   {
-    kv = (ngx_keyval_t *) &custom->elts[i];
+    kv = (ngx_keyval_t *) &(*((ngx_keyval_t *) custom->elts + i));
 
     // XXX: only first level for now
-    claim = json_object_get(jwt_body, kv->key.data);
+    claim = json_object_get(jwt_body, (const char *) kv->key.data);
 
     if (claim == NULL)
     { rc = -1; goto fast_exit; }
 
     claim_val = json_string_value(claim);
 
-    if (strncmp(claim_val, kv->value.data, kv->value.len))
+    if (strncmp(claim_val, (const char *) kv->value.data, kv->value.len))
     { rc = -1; goto fast_exit; }
   }
   rc = 0;
 
 fast_exit:
-  free(msg); json_decref(jwt_body);
+  free(parsed_jwt); free(msg); json_decref(jwt_body);
 
   if (!rc)
     return NGX_OK;
@@ -457,7 +459,7 @@ EVP_PKEY *setup_jwks(ngx_str_t jwks_file)
   const char *exponent;
 
   json_t *jwks; json_error_t jerr;
-  jwks = json_load_file(jwks_file.data, JSON_DECODE_ANY, &jerr);
+  jwks = json_load_file((const char *) jwks_file.data, JSON_DECODE_ANY, &jerr);
 
   // attempt to read a KeySet, if that fails, see if you can read a Key
   json_t *keys, *key_1, *n, *e;
