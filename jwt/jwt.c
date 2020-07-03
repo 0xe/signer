@@ -304,7 +304,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   issuer = json_string_value(iss);
 
   if(strncmp(issuer, (const char *) location_conf->issuer.data, location_conf->issuer.len))
-  { rc = -1; goto fast_exit; }
+  { rc = -1; goto fast_exit_valid_jwt; }
 
   // check expiry
   json_t *exp = json_object_get(jwt_body, "exp");
@@ -313,7 +313,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   int skew = strtoll((const char *) location_conf->skew.data, NULL, 10);
 
   if(current_time > (expiry + skew))
-  { rc = -1; goto fast_exit; }
+  { rc = -1; goto fast_exit_valid_jwt; }
 
   // check custom claims
   ngx_array_t *custom = location_conf->fields;
@@ -322,7 +322,7 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
   if (!custom)
   {
     rc = 0;
-    goto fast_exit;
+    goto fast_exit_valid_jwt;
   }
 
   for(i = 0; i < custom->nelts; i++)
@@ -333,17 +333,20 @@ static ngx_int_t ngx_http_jwt_handler(ngx_http_request_t *r)
     claim = json_object_get(jwt_body, (const char *) kv->key.data);
 
     if (claim == NULL)
-    { rc = -1; goto fast_exit; }
+    { rc = -1; goto fast_exit_valid_jwt; }
 
     claim_val = json_string_value(claim);
 
     if (strncmp(claim_val, (const char *) kv->value.data, kv->value.len))
-    { rc = -1; goto fast_exit; }
+    { rc = -1; goto fast_exit_valid_jwt; }
   }
   rc = 0;
 
+fast_exit_valid_jwt:
+  json_decref(jwt_body);
+
 fast_exit:
-  free(parsed_jwt); free(msg); json_decref(jwt_body);
+  free(parsed_jwt); free(msg);
 
   if (!rc)
     return NGX_OK;
