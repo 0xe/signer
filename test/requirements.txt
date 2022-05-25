@@ -4,4 +4,4 @@ requests>=2.20.0
 sanction==0.4.1
 pytest==2.9.1
 pytest-xdist==1.15.0
-PyJWT==1.6.4
+PyJWT==2.4.0
