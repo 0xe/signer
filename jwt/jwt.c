@@ -14,12 +14,12 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
  * Verify signed tokens in Authorization header
  */
 
-#include <jansson.h>
-
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 #include <ngx_hash.h>
+
+#include <jansson.h>
 
 /* crypto */
 #include <openssl/x509v3.h>
